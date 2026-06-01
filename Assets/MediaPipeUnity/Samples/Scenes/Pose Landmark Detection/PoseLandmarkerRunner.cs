@@ -5,6 +5,7 @@
 // https://opensource.org/licenses/MIT.
 
 using System.Collections;
+using System.Collections.Generic;
 using Mediapipe.Tasks.Vision.PoseLandmarker;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -14,6 +15,7 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
   public class PoseLandmarkerRunner : VisionTaskApiRunner<PoseLandmarker>
   {
     [SerializeField] private PoseLandmarkerResultAnnotationController _poseLandmarkerResultAnnotationController;
+    [SerializeField] private PoseVisualizer poseVisualizer;
 
     private Experimental.TextureFramePool _textureFramePool;
 
@@ -159,21 +161,53 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
       }
     }
 
-    private void OnPoseLandmarkDetectionOutput(PoseLandmarkerResult result, Image image, long timestamp)
-    {
-      _poseLandmarkerResultAnnotationController.DrawLater(result);
-      DisposeAllMasks(result);
-    }
-
-    private void DisposeAllMasks(PoseLandmarkerResult result)
-    {
-      if (result.segmentationMasks != null)
-      {
-        foreach (var mask in result.segmentationMasks)
+        private void OnPoseLandmarkDetectionOutput(
+        PoseLandmarkerResult result,
+        Image image,
+        long timestamp)
         {
-          mask.Dispose();
+            _poseLandmarkerResultAnnotationController.DrawLater(result);
+
+            if (poseVisualizer != null &&
+                result.poseLandmarks != null &&
+                result.poseLandmarks.Count > 0)
+            {
+                var landmarks = result.poseLandmarks[0];
+
+                UpdateLandmark(0, landmarks);
+                UpdateLandmark(11, landmarks);
+                UpdateLandmark(12, landmarks);
+                UpdateLandmark(13, landmarks);
+                UpdateLandmark(14, landmarks);
+                UpdateLandmark(15, landmarks);
+                UpdateLandmark(16, landmarks);
+            }
+
+            DisposeAllMasks(result);
         }
-      }
-    }
+        private void UpdateLandmark(int landmarkIndex,Tasks.Components.Containers.NormalizedLandmarks landmarks)
+        {
+            if (landmarkIndex >= landmarks.landmarks.Count)
+                return;
+
+            var landmark = landmarks.landmarks[landmarkIndex];
+
+            poseVisualizer.UpdateJoint(
+                landmarkIndex,
+                landmark.x,
+                landmark.y
+            );
+        }
+
+        private void DisposeAllMasks(PoseLandmarkerResult result)
+        {
+          if (result.segmentationMasks != null)
+          {
+            foreach (var mask in result.segmentationMasks)
+            {
+              mask.Dispose();
+            }
+          }
+        }
   }
 }
