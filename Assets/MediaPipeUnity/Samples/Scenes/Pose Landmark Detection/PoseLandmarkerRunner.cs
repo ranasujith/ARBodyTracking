@@ -14,10 +14,24 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 {
   public class PoseLandmarkerRunner : VisionTaskApiRunner<PoseLandmarker>
   {
-    [SerializeField] private PoseLandmarkerResultAnnotationController _poseLandmarkerResultAnnotationController;
-    [SerializeField] private PoseVisualizer poseVisualizer;
+        [SerializeField] private PoseVisualizer poseVisualizer;
 
-    private Experimental.TextureFramePool _textureFramePool;
+        private readonly Dictionary<int, Vector2> pendingLandmarks =
+            new Dictionary<int, Vector2>();
+
+        private readonly object landmarkLock = new object();
+
+        private static readonly int[] TrackedLandmarks =
+        {
+            0,   // Nose
+            11,  // Left Shoulder
+            12,  // Right Shoulder
+            13,  // Left Elbow
+            14,  // Right Elbow
+            15,  // Left Wrist
+            16   // Right Wrist
+        };
+        private Experimental.TextureFramePool _textureFramePool;
 
     public readonly PoseLandmarkDetectionConfig config = new PoseLandmarkDetectionConfig();
 
@@ -27,9 +41,25 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
       _textureFramePool?.Dispose();
       _textureFramePool = null;
     }
+     private void Update()
+     {
+            if (poseVisualizer == null)
+                return;
 
-    protected override IEnumerator Run()
-    {
+            lock (landmarkLock)
+            {
+                foreach (var pair in pendingLandmarks)
+                {
+                    poseVisualizer.UpdateJoint(
+                        pair.Key,
+                        pair.Value.x,
+                        pair.Value.y);
+                }
+            }
+
+        }
+        protected override IEnumerator Run()
+      {
       Debug.Log($"Delegate = {config.Delegate}");
       Debug.Log($"Image Read Mode = {config.ImageReadMode}");
       Debug.Log($"Model = {config.ModelName}");
@@ -60,9 +90,6 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
 
       // NOTE: The screen will be resized later, keeping the aspect ratio.
       screen.Initialize(imageSource);
-
-      SetupAnnotationController(_poseLandmarkerResultAnnotationController, imageSource);
-      _poseLandmarkerResultAnnotationController.InitScreen(imageSource.textureWidth, imageSource.textureHeight);
 
       var transformationOptions = imageSource.GetTransformationOptions();
       var flipHorizontally = transformationOptions.flipHorizontally;
@@ -133,25 +160,9 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
         switch (taskApi.runningMode)
         {
           case Tasks.Vision.Core.RunningMode.IMAGE:
-            if (taskApi.TryDetect(image, imageProcessingOptions, ref result))
-            {
-              _poseLandmarkerResultAnnotationController.DrawNow(result);
-            }
-            else
-            {
-              _poseLandmarkerResultAnnotationController.DrawNow(default);
-            }
             DisposeAllMasks(result);
             break;
           case Tasks.Vision.Core.RunningMode.VIDEO:
-            if (taskApi.TryDetectForVideo(image, GetCurrentTimestampMillisec(), imageProcessingOptions, ref result))
-            {
-              _poseLandmarkerResultAnnotationController.DrawNow(result);
-            }
-            else
-            {
-              _poseLandmarkerResultAnnotationController.DrawNow(default);
-            }
             DisposeAllMasks(result);
             break;
           case Tasks.Vision.Core.RunningMode.LIVE_STREAM:
@@ -162,43 +173,37 @@ namespace Mediapipe.Unity.Sample.PoseLandmarkDetection
     }
 
         private void OnPoseLandmarkDetectionOutput(
-        PoseLandmarkerResult result,
-        Image image,
-        long timestamp)
+    PoseLandmarkerResult result,
+    Image image,
+    long timestamp)
         {
-            _poseLandmarkerResultAnnotationController.DrawLater(result);
-
-            if (poseVisualizer != null &&
-                result.poseLandmarks != null &&
-                result.poseLandmarks.Count > 0)
+            if (result.poseLandmarks == null ||
+                result.poseLandmarks.Count == 0)
             {
-                var landmarks = result.poseLandmarks[0];
+                DisposeAllMasks(result);
+                return;
+            }
 
-                UpdateLandmark(0, landmarks);
-                UpdateLandmark(11, landmarks);
-                UpdateLandmark(12, landmarks);
-                UpdateLandmark(13, landmarks);
-                UpdateLandmark(14, landmarks);
-                UpdateLandmark(15, landmarks);
-                UpdateLandmark(16, landmarks);
+            var landmarks = result.poseLandmarks[0];
+
+            lock (landmarkLock)
+            {
+                foreach (var landmarkId in TrackedLandmarks)
+                {
+                    if (landmarkId >= landmarks.landmarks.Count)
+                        continue;
+
+                    var landmark = landmarks.landmarks[landmarkId];
+
+                    pendingLandmarks[landmarkId] =
+                        new Vector2(
+                            landmark.x,
+                            landmark.y);
+                }
             }
 
             DisposeAllMasks(result);
         }
-        private void UpdateLandmark(int landmarkIndex,Tasks.Components.Containers.NormalizedLandmarks landmarks)
-        {
-            if (landmarkIndex >= landmarks.landmarks.Count)
-                return;
-
-            var landmark = landmarks.landmarks[landmarkIndex];
-
-            poseVisualizer.UpdateJoint(
-                landmarkIndex,
-                landmark.x,
-                landmark.y
-            );
-        }
-
         private void DisposeAllMasks(PoseLandmarkerResult result)
         {
           if (result.segmentationMasks != null)
