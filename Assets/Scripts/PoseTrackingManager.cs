@@ -50,6 +50,8 @@ public class PoseTrackingManager : MonoBehaviour
                 var snap = resultQueue.Dequeue();
                 foreach (var lm in snap.Landmarks)
                     poseVisualizer.UpdateJoint(lm.Id, lm.X, lm.Y);
+
+                poseVisualizer.RefreshSkeleton(); 
             }
         }
     }
@@ -69,34 +71,45 @@ public class PoseTrackingManager : MonoBehaviour
             return;
 
         initialized = true;
-
-        Debug.Log("[PoseTrackingManager] Camera ready — initialising MediaPipe.");
         StartCoroutine(InitAndRun());
     }
 
     private IEnumerator InitAndRun()
     {
-        string modelPath = System.IO.Path.Combine(
-            Application.streamingAssetsPath, modelFileName);
+        string modelPath;
 
 #if UNITY_ANDROID && !UNITY_EDITOR
-        modelPath = System.IO.Path.Combine(
-            Application.persistentDataPath, modelFileName);
-        if (!System.IO.File.Exists(modelPath))
-            yield return CopyStreamingAsset(modelFileName, modelPath);
+    modelPath = System.IO.Path.Combine(Application.persistentDataPath, modelFileName);
+    if (!System.IO.File.Exists(modelPath))
+        yield return CopyStreamingAsset(modelFileName, modelPath);
 #else
-        yield return null; 
+        modelPath = System.IO.Path.Combine(Application.streamingAssetsPath, modelFileName);
 #endif
 
         if (!System.IO.File.Exists(modelPath))
         {
-            Debug.LogError($"[PoseTrackingManager] Model not found: {modelPath}");
+            Debug.LogError($"[PoseTrackingManager] Model not found at: {modelPath}");
             yield break;
         }
 
+        Debug.Log($"[PoseTrackingManager] Loading model from: {modelPath}");
+
+        byte[] modelBytes = null;
+        try
+        {
+            modelBytes = System.IO.File.ReadAllBytes(modelPath);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"[PoseTrackingManager] Failed to read model: {e.Message}");
+            yield break;
+        }
+
+        Debug.Log($"[PoseTrackingManager] Model loaded, {modelBytes.Length} bytes.");
+
         var baseOptions = new BaseOptions(
             BaseOptions.Delegate.CPU,
-            modelAssetPath: modelPath);
+            modelAssetBuffer: modelBytes);   
 
         var options = new PoseLandmarkerOptions(
             baseOptions,
@@ -139,7 +152,7 @@ public class PoseTrackingManager : MonoBehaviour
                 bufferHeight = h;
             }
 
-            CopyColor32ToNativeArray(pixels, imageBuffer);
+            CopyColor32ToNativeArray(pixels, imageBuffer, w, h);
 
             Mediapipe.Image image;
             try
@@ -173,37 +186,29 @@ public class PoseTrackingManager : MonoBehaviour
         {
             if (id >= landmarks.landmarks.Count) continue;
             var lm = landmarks.landmarks[id];
-            snap.Landmarks.Add(new LandmarkData(id, lm.x, lm.y));
+            snap.Landmarks.Add(new LandmarkData(id, 1f - lm.x, lm.y)); 
         }
 
         lock (queueLock)
             resultQueue.Enqueue(snap);
     }
 
-    private static void CopyColor32ToNativeArray(Color32[] src, NativeArray<byte> dst)
+    private static void CopyColor32ToNativeArray(Color32[] src, NativeArray<byte> dst, int width, int height)
     {
-        for (int i = 0; i < src.Length; i++)
+        for (int y = 0; y < height; y++)
         {
-            int b = i * 4;
-            dst[b] = src[i].r;
-            dst[b + 1] = src[i].g;
-            dst[b + 2] = src[i].b;
-            dst[b + 3] = src[i].a;
+            int srcRow = (height - 1 - y); 
+            for (int x = 0; x < width; x++)
+            {
+                int srcIdx = (srcRow * width + x);
+                int dstIdx = (y * width + x) * 4;
+                dst[dstIdx] = src[srcIdx].r;
+                dst[dstIdx + 1] = src[srcIdx].g;
+                dst[dstIdx + 2] = src[srcIdx].b;
+                dst[dstIdx + 3] = src[srcIdx].a;
+            }
         }
     }
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-    private IEnumerator CopyStreamingAsset(string fileName, string destPath)
-    {
-        string srcUrl = System.IO.Path.Combine(Application.streamingAssetsPath, fileName);
-        using var req = UnityEngine.Networking.UnityWebRequest.Get(srcUrl);
-        yield return req.SendWebRequest();
-        if (req.result == UnityEngine.Networking.UnityWebRequest.Result.Success)
-            System.IO.File.WriteAllBytes(destPath, req.downloadHandler.data);
-        else
-            Debug.LogError($"[PoseTrackingManager] Failed to copy asset: {req.error}");
-    }
-#endif
 
     private class LandmarkSnapshot
     {

@@ -12,9 +12,11 @@ public class PoseVisualizer : MonoBehaviour
     [SerializeField] private Color shoulderColor = Color.cyan;
     [SerializeField] private Color elbowColor = Color.green;
     [SerializeField] private Color wristColor = Color.red;
+    [SerializeField] private RectTransform linePrefab;
 
-    private readonly Dictionary<int, RectTransform> _markers =
-        new Dictionary<int, RectTransform>();
+    private Dictionary<string, RectTransform> lines = new Dictionary<string, RectTransform>();   
+
+    private readonly Dictionary<int, RectTransform> _markers = new Dictionary<int, RectTransform>();
 
     private static readonly Dictionary<int, string> JointNames = new()
     {
@@ -31,6 +33,25 @@ public class PoseVisualizer : MonoBehaviour
     {
         foreach (var kvp in JointNames)
             CreateMarker(kvp.Key, kvp.Value);
+
+        CreateLine(0, 11);
+        CreateLine(0, 12);
+        CreateLine(11, 12);
+
+        CreateLine(11, 13);
+        CreateLine(13, 15);
+
+        CreateLine(12, 14);
+        CreateLine(14, 16);
+    }
+    private void CreateLine(int a, int b)
+    {
+        var line = Instantiate(linePrefab, markerParent);
+
+        line.name = $"{a}_{b}";
+        line.gameObject.SetActive(false);
+
+        lines.Add($"{a}_{b}", line);
     }
 
     private void CreateMarker(int id, string label)
@@ -52,12 +73,53 @@ public class PoseVisualizer : MonoBehaviour
         float w = markerParent.rect.width;
         float h = markerParent.rect.height;
 
-        float posX = (normalizedX - 0.5f) * w;
-        float posY = (0.5f - normalizedY) * h;
+        marker.anchoredPosition = new Vector2(
+            (normalizedX - 0.5f) * w,
+            (0.5f - normalizedY) * h
+        );
 
-        marker.anchoredPosition = new Vector2(posX, posY);
         if (!marker.gameObject.activeSelf)
             marker.gameObject.SetActive(true);
+
+    }
+
+    public void RefreshSkeleton() => UpdateSkeleton();
+
+    private void UpdateSkeleton()
+    {
+        UpdateLine(0, 11);
+        UpdateLine(0, 12);
+        UpdateLine(11, 12);
+
+        UpdateLine(11, 13);
+        UpdateLine(13, 15);
+
+        UpdateLine(12, 14);
+        UpdateLine(14, 16);
+    }
+    private void UpdateLine(int a, int b)
+    {
+        if (!_markers.ContainsKey(a) || !_markers.ContainsKey(b))
+            return;
+
+        var p1 = _markers[a].anchoredPosition;
+        var p2 = _markers[b].anchoredPosition;
+
+        if (!lines.TryGetValue($"{a}_{b}", out var line))
+            return;
+
+        Vector2 direction = p2 - p1;
+        float distance = direction.magnitude;
+
+        line.sizeDelta = new Vector2(distance, 6);
+
+        line.anchoredPosition = (p1 + p2) * 0.5f;
+
+        float angle = Mathf.Atan2(direction.y, direction.x) * Mathf.Rad2Deg;
+        line.localRotation = Quaternion.Euler(0, 0, angle);
+
+        if (!line.gameObject.activeSelf)
+            line.gameObject.SetActive(true);
     }
 
     public void SetMarkerVisible(int landmarkId, bool visible)
